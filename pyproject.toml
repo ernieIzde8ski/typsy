@@ -1,0 +1,54 @@
+# dev tools
+[tool.ruff]
+line-length     = 90
+indent-width    = 4
+target-version  = "py313"
+
+[tool.ruff.format]
+docstring-code-format = true
+line-ending = "lf"
+skip-magic-trailing-comma = true
+
+[tool.isort]
+profile = "black"
+line_length = 90
+
+[tool.black]
+line-length = 90
+target-version = ["py313"]
+skip-magic-trailing-comma = true
+
+[tool.basedpyright]
+reportImplicitStringConcatenation = false
+pythonVersion = "3.13"
+
+# packaging
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "typsy"
+authors = [
+    { name="Ernest Izdebski", email="44341687+ernieIzde8ski@users.noreply.github.com" }
+]
+description = "A Typst project manager."
+readme = { file = "README.md", content-type="text/markdown" }
+requires-python = ">=3.13"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dynamic = ["dependencies", "version"]
+license = { file = "LICENSE" }
+scripts = { "typsy" = "typsy.app:app" }
+[project.urls]
+Homepage = "https://github.com/ernieIzde8ski/typsy"
+Issues =  "https://github.com/ernieIzde8ski/typsy/issues"
+[tool.setuptools.dynamic]
+dependencies = { file = "requirements.txt" }
+version = { attr = "typsy.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
