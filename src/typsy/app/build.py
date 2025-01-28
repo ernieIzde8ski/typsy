@@ -27,7 +27,9 @@ NormalExit = ExitCode(0)
 
 
 def build_multiple(files: Sequence[tuple[Path, Path]], *, root: Path | None) -> ExitCode:
-    logger.info(f"Building {len(files)} files...")
+    count = len(files)
+    if count > 1:
+        logger.info(f"Building {len(files)} files...")
     exit_code = NormalExit
     for source, target in files:
         logger.info(f"Building file: {target}")
