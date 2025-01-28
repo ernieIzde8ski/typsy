@@ -2,7 +2,7 @@ import subprocess
 import sys
 from collections.abc import Sequence
 from enum import Enum
-from typing import Annotated, LiteralString
+from typing import Annotated, LiteralString, NewType
 
 import typer
 from evilpath import Path
@@ -10,15 +10,15 @@ from loguru import logger
 from typer import Typer
 from watchfiles import watch as fswatch
 
+from typsy.stdout import abort
+
 from .config import get_config
-from .debug import invocation
 
 __all__ = ["app"]
 
 app = Typer()
 
 
-@invocation
 def up_to_date(target: Path, *deps: Path):
     if not target.exists():
         logger.trace(f"target does not exist: {target}")
@@ -35,8 +35,13 @@ def up_to_date(target: Path, *deps: Path):
     return True
 
 
-def build_multiple(files: Sequence[tuple[Path, Path]], *, root: Path | None):
+ExitCode = NewType("ExitCode", int)
+NormalExit = ExitCode(0)
+
+
+def build_multiple(files: Sequence[tuple[Path, Path]], *, root: Path | None) -> ExitCode:
     logger.info(f"Building {len(files)} files...")
+    exit_code = NormalExit
     for source, target in files:
         logger.info(f"Building file: {target}")
         command = ["typst", "compile"]
@@ -44,7 +49,9 @@ def build_multiple(files: Sequence[tuple[Path, Path]], *, root: Path | None):
             command += ["--root", root]
         command += [source, target]
         logger.debug(f"Executing command: {command}")
-        _ = subprocess.run(command)
+        proc = subprocess.run(command)
+        exit_code = ExitCode(proc.returncode) or exit_code
+    return exit_code
 
 
 class Verbosity(str, Enum):
@@ -70,6 +77,17 @@ def build(
     path: Annotated[Path | None, typer.Argument(parser=Path)] = None,
     watch: Annotated[bool, typer.Option("-w", "--watch")] = False,
     verbosity: Annotated[Verbosity, typer.Option("-v", "--verbosity")] = Verbosity.normal,
+    poll: Annotated[
+        bool | None,
+        typer.Option(
+            "-p",
+            "--force-poll/--no-poll",
+            help="""Forcefully enable polling. Implies `-w`.
+
+            This is not recommended, but may be necessary if you experience issues with the typical API.""",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """Build a Typst project."""
     logger.remove()
@@ -85,7 +103,7 @@ def build(
 
     logger.debug("Collected entries:")
     for entry in entries.keys():
-        logger.debug(f":: {entry}")
+        logger.debug(f" - {entry}")
 
     out_of_date = tuple(
         (source, target)
@@ -94,20 +112,27 @@ def build(
     )
 
     if out_of_date:
-        build_multiple(out_of_date, root=typst_root)
+        exit_code = build_multiple(out_of_date, root=typst_root)
     else:
         logger.info("All files up to date!")
+        exit_code = ExitCode(0)
 
-    if not watch:
-        return
+    if not watch and poll is None:
+        raise typer.Exit(exit_code)
 
     logger.info(f"Watching for changes in {len(entries)} files.")
+
+    if poll is not None:
+        logger.debug(f"Forced polling is currently {'enabled' if poll else 'disabled'}.")
+
     for entry in entries:
         logger.trace(f"  - {entry}")
 
-    for file_changes in fswatch(*entries):
+    for file_changes in fswatch(*entries, force_polling=poll):
         typer.clear()
         out_of_date = tuple(
             (Path(source), entries[Path(source)]) for (_, source) in file_changes
         )
-        build_multiple(out_of_date, root=typst_root)
+        _ = build_multiple(out_of_date, root=typst_root)
+
+    abort("`fswatch` unexpectedly stopped.")
