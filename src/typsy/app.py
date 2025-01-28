@@ -2,35 +2,40 @@ import subprocess
 import sys
 from collections.abc import Sequence
 from enum import Enum
-from pathlib import Path
 from typing import Annotated, LiteralString
 
 import typer
+from evilpath import Path
 from loguru import logger
 from typer import Typer
 from watchfiles import watch as fswatch
 
 from .config import get_config
+from .debug import invocation
 
 __all__ = ["app"]
 
 app = Typer()
 
 
+@invocation
 def up_to_date(target: Path, *deps: Path):
     if not target.exists():
+        logger.trace(f"target does not exist: {target}")
         return False
 
-    t_mtime = target.stat().st_mtime_ns
+    t_mtime = target.mtime(form="datetime")
+    logger.trace(f"\t({t_mtime}, {target})")
     for dep in deps:
-        d_mtime = dep.stat().st_mtime_ns
+        d_mtime = dep.mtime(form="datetime")
+        logger.trace(f"\t({d_mtime}, {dep})")
         if d_mtime > t_mtime:
             return False
 
     return True
 
 
-def build_multiple(files: Sequence[tuple[Path, Path]], *, root: Path | None = None):
+def build_multiple(files: Sequence[tuple[Path, Path]], *, root: Path | None):
     logger.info(f"Building {len(files)} files...")
     for source, target in files:
         logger.info(f"Building file: {target}")
@@ -38,6 +43,7 @@ def build_multiple(files: Sequence[tuple[Path, Path]], *, root: Path | None = No
         if root is not None:
             command += ["--root", root]
         command += [source, target]
+        logger.debug(f"Executing command: {command}")
         _ = subprocess.run(command)
 
 
@@ -45,6 +51,7 @@ class Verbosity(str, Enum):
     quiet = "quiet"
     normal = "normal"
     debug = "debug"
+    trace = "trace"
 
     def int_value(self) -> LiteralString:
         match self:
@@ -54,11 +61,13 @@ class Verbosity(str, Enum):
                 return "INFO"
             case Verbosity.debug:
                 return "DEBUG"
+            case Verbosity.trace:
+                return "TRACE"
 
 
 @app.command()
 def build(
-    path: Annotated[Path | None, typer.Argument()] = None,
+    path: Annotated[Path | None, typer.Argument(parser=Path)] = None,
     watch: Annotated[bool, typer.Option("-w", "--watch")] = False,
     verbosity: Annotated[Verbosity, typer.Option("-v", "--verbosity")] = Verbosity.normal,
 ):
@@ -88,14 +97,17 @@ def build(
         build_multiple(out_of_date, root=typst_root)
     else:
         logger.info("All files up to date!")
-        logger.info(f"Watching for changes in {len(entries)} files.")
 
     if not watch:
         return
+
+    logger.info(f"Watching for changes in {len(entries)} files.")
+    for entry in entries:
+        logger.trace(f"  - {entry}")
 
     for file_changes in fswatch(*entries):
         typer.clear()
         out_of_date = tuple(
             (Path(source), entries[Path(source)]) for (_, source) in file_changes
         )
-        build_multiple(out_of_date)
+        build_multiple(out_of_date, root=typst_root)

@@ -1,9 +1,9 @@
 from collections.abc import Generator
 from itertools import chain
-from pathlib import Path
 
 import typer
 import yaml
+from evilpath import Path
 from pydantic import BaseModel, TypeAdapter
 
 from .stdout import abort
