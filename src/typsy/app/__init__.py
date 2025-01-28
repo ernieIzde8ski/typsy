@@ -1,8 +1,4 @@
-import subprocess
-import sys
-from collections.abc import Sequence
-from enum import Enum
-from typing import Annotated, LiteralString, NewType
+from typing import Annotated
 
 import typer
 from evilpath import Path
@@ -10,66 +6,14 @@ from loguru import logger
 from typer import Typer
 from watchfiles import watch as fswatch
 
-from typsy.stdout import abort
-
-from .config import get_config
+from ..config import get_config
+from ..stdout import abort
+from .build import ExitCode, build_multiple, up_to_date
+from .verbosity import Verbosity
 
 __all__ = ["app"]
 
 app = Typer()
-
-
-def up_to_date(target: Path, *deps: Path):
-    if not target.exists():
-        logger.trace(f"target does not exist: {target}")
-        return False
-
-    t_mtime = target.mtime(form="datetime")
-    logger.trace(f"\t({t_mtime}, {target})")
-    for dep in deps:
-        d_mtime = dep.mtime(form="datetime")
-        logger.trace(f"\t({d_mtime}, {dep})")
-        if d_mtime > t_mtime:
-            return False
-
-    return True
-
-
-ExitCode = NewType("ExitCode", int)
-NormalExit = ExitCode(0)
-
-
-def build_multiple(files: Sequence[tuple[Path, Path]], *, root: Path | None) -> ExitCode:
-    logger.info(f"Building {len(files)} files...")
-    exit_code = NormalExit
-    for source, target in files:
-        logger.info(f"Building file: {target}")
-        command = ["typst", "compile"]
-        if root is not None:
-            command += ["--root", root]
-        command += [source, target]
-        logger.debug(f"Executing command: {command}")
-        proc = subprocess.run(command)
-        exit_code = ExitCode(proc.returncode) or exit_code
-    return exit_code
-
-
-class Verbosity(str, Enum):
-    quiet = "quiet"
-    normal = "normal"
-    debug = "debug"
-    trace = "trace"
-
-    def int_value(self) -> LiteralString:
-        match self:
-            case Verbosity.quiet:
-                return "ERROR"
-            case Verbosity.normal:
-                return "INFO"
-            case Verbosity.debug:
-                return "DEBUG"
-            case Verbosity.trace:
-                return "TRACE"
 
 
 @app.command()
@@ -90,8 +34,10 @@ def build(
     ] = None,
 ):
     """Build a Typst project."""
-    logger.remove()
-    _ = logger.add(sys.stderr, level=verbosity.int_value())
+    verbosity.configure_logger()
+
+    if poll is not None:
+        watch = True
 
     # TODO: implement watching on changes to config file
     (config, config_path) = get_config(path)
